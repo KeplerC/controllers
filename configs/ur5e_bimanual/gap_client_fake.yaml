@@ -1,0 +1,84 @@
+# dionysus rig — FAKE hardware rehearsal: simulated arms (real URRegisterArm logic) + ray-cast RGB-D.
+# Run with DIONYSUS_STOP_LATCH=/dev/shm/dionysus_rig_stop_fake so the real rig's latch is untouched:
+#   DIONYSUS_STOP_LATCH=/dev/shm/dionysus_rig_stop_fake gap run <graph> --real ur5e_bimanual \
+#       --rr-config configs/ur5e_bimanual/gap_client_fake.yaml
+version: "1"
+session:
+  record_topic: ur_client/record   # the hub's `record start|stop` (studio/record -> the client -> here)
+  save_root: /home/lab/eric/data/recordings_fake
+
+nodes:
+  - type: AgentNode
+    name: ur_client
+    agent_class: robots_realtime.agents.client.ur_bimanual_client:URBimanualClientAgent
+    loop_mode: fixed_rate
+    poll_freq: 100
+    multi_arm_topics: true
+    agent_kwargs:
+      rig_yaml: configs/ur5e_bimanual/rig_fake.yaml
+      gap_port: 9000
+      viser_port: 8080
+      camera_period_s: 0.2
+      stale_after_s: 0.25
+    extra_topics:            # the hub's answers over the bus (r2s2rn relay)
+      studio_ack: studio/viz_ack
+      studio_stop: studio/stop
+      studio_record: studio/record
+    state_topics:
+      right: ur_right/joint_state
+      left: ur_left/joint_state
+    image_topics:
+      top: cam_top/rgb
+      bottom: cam_bottom/rgb
+      right_wrist: cam_right_wrist/rgb
+      left_wrist: cam_left_wrist/rgb
+
+  - type: RobotNode
+    name: ur_right
+    robot_config: robot_configs/ur5e/right_fake.yaml
+    poll_freq: 125
+    cmd_topic: ur_client/right_pos
+    cmd_timeout_s: 0.2
+
+  - type: RobotNode
+    name: ur_left
+    robot_config: robot_configs/ur5e/left_fake.yaml
+    poll_freq: 125
+    cmd_topic: ur_client/left_pos
+    cmd_timeout_s: 0.2
+
+  - type: CameraNode
+    name: cam_top
+    driver: robots_realtime.sensors.cameras.fake_rgbd_camera:FakeRgbdCamera
+    camera: top
+    rig_yaml: configs/ur5e_bimanual/rig_fake.yaml
+    width: 424
+    height: 265
+    fps: 10
+
+  - type: CameraNode
+    name: cam_bottom
+    driver: robots_realtime.sensors.cameras.fake_rgbd_camera:FakeRgbdCamera
+    camera: bottom
+    rig_yaml: configs/ur5e_bimanual/rig_fake.yaml
+    width: 424
+    height: 265
+    fps: 10
+
+  - type: CameraNode
+    name: cam_right_wrist
+    driver: robots_realtime.sensors.cameras.fake_rgbd_camera:FakeRgbdCamera
+    camera: right_wrist
+    rig_yaml: configs/ur5e_bimanual/rig_fake.yaml
+    width: 424
+    height: 265
+    fps: 10
+
+  - type: CameraNode
+    name: cam_left_wrist
+    driver: robots_realtime.sensors.cameras.fake_rgbd_camera:FakeRgbdCamera
+    camera: left_wrist
+    rig_yaml: configs/ur5e_bimanual/rig_fake.yaml
+    width: 424
+    height: 265
+    fps: 10

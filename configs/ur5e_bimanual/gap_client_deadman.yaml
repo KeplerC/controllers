@@ -1,0 +1,63 @@
+# dionysus rig — as gap_client.yaml, plus the foot pedal as a deadman (hold to move).
+# Releasing the pedal while armed is a STOP (latch + REST program stop).
+version: "1"
+session:
+  record_topic: ur_client/record   # the hub's `record start|stop` (studio/record -> the client -> here)
+  save_root: /home/lab/eric/data/recordings
+
+nodes:
+  - type: AgentNode
+    name: ur_client
+    agent_class: robots_realtime.agents.client.ur_bimanual_client:URBimanualClientAgent
+    loop_mode: fixed_rate
+    poll_freq: 100
+    multi_arm_topics: true
+    agent_kwargs:
+      gap_port: 9000
+      viser_port: 8080
+      camera_period_s: 0.2
+      stale_after_s: 0.25
+      deadman: pedal
+    extra_topics:            # the hub's answers over the bus (r2s2rn relay)
+      studio_ack: studio/viz_ack
+      studio_stop: studio/stop
+      studio_record: studio/record
+    state_topics:
+      right: ur_right/joint_state
+      left: ur_left/joint_state
+    image_topics:
+      top: cams/top
+      bottom: cams/bottom
+      right_wrist: cams/right_wrist
+      left_wrist: cams/left_wrist
+
+  - type: RobotNode
+    name: ur_right
+    robot_config: robot_configs/ur5e/right_motion.yaml
+    poll_freq: 125
+    cmd_topic: ur_client/right_pos
+    cmd_timeout_s: 0.2
+
+  - type: RobotNode
+    name: ur_left
+    robot_config: robot_configs/ur5e/left_motion.yaml
+    poll_freq: 125
+    cmd_topic: ur_client/left_pos
+    cmd_timeout_s: 0.2
+
+  # All four Orbbec cameras in ONE process: the SDK does not share GMSL cameras
+  # across processes (see robots_realtime/runtime/environment/orbbec_rig_node.py).
+  - type: OrbbecRigNode
+    name: cams
+    width: 848
+    height: 530
+    fps: 15
+    poll_freq: 30
+    publish_freq: 10   # bus rate per camera; recording still gets every frame
+    enable_depth: true
+    work_mode: Default
+    cameras:
+      - {camera: top, serial: "CV3H46000036"}
+      - {camera: bottom, serial: "CV3H4600001A"}
+      - {camera: right_wrist, serial: "CV3H46000012"}
+      - {camera: left_wrist, serial: "CV3H4600008Z"}
