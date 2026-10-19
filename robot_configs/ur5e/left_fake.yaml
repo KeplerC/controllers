@@ -1,0 +1,7 @@
+# SIMULATED left follower (FakeURController behind the real URRegisterArm logic).
+_target_: robots_realtime.robots.fake_ur.FakeURRegisterArm
+name: left
+rig_yaml: configs/ur5e_bimanual/rig_fake.yaml
+rate: 125.0
+max_joint_vel: 0.5
+speed_fraction: 1.0

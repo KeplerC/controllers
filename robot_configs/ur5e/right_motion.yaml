@@ -1,0 +1,17 @@
+# right UR5e follower (192.168.0.13) — DRIVES the arm through the vendor "Default program".
+# Bring-up needs: pendant Automatic + Remote, "Default program" loaded and STOPPED,
+# recording_studio "Robot Arms" OFF, stop latch clear. See URRegisterArm docstring.
+_target_: robots_realtime.robots.ur_register_arm.URRegisterArm
+ip: "192.168.0.13"
+name: right
+enable_motion: true
+rate: 125.0
+max_joint_vel: 0.25          # rad/s setpoint cap (raise only after stop drills)
+max_lead: 0.05               # rad, setpoint never leads actual_q by more
+speed_fraction: 0.10         # speed slider while driving (bring-up value)
+restore_speed_fraction: 0.30 # value found on the rig; restored on hand-back
+cmd_timeout_s: 0.3
+joint_lower: [-6.2831853, -6.2831853, -6.2831853, -6.2831853, -6.2831853, -6.2831853]
+joint_upper: [6.2831853, 6.2831853, 6.2831853, 6.2831853, 6.2831853, 6.2831853]
+play_on_start: true
+allow_attach_playing: false

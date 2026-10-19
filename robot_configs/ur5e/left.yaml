@@ -1,0 +1,6 @@
+# left UR5e follower (192.168.0.11) — READ-ONLY: output recipe only, never writes a register.
+_target_: robots_realtime.robots.ur_register_arm.URRegisterArm
+ip: "192.168.0.11"
+name: left
+enable_motion: false
+rate: 125.0
