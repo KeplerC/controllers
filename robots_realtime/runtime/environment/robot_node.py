@@ -76,10 +76,14 @@ class RobotNode(Node):
         cmd_topic: str | None = None,
         robot_config: str | None = None,
         poll_freq: float | None = None,
+        cmd_timeout_s: float | None = None,
         writer=None,
         **kwargs,
     ) -> None:
         self.subscribed_topics = [cmd_topic] if cmd_topic else []
+        # Commands older than this are not forwarded (the robot then holds on
+        # its own command timeout). None keeps the old re-send-forever behaviour.
+        self._cmd_timeout_s = cmd_timeout_s
         # Explicitly set poll_freq and subscriber_driven before calling super().__init__
         if poll_freq is not None:
             self.poll_freq = poll_freq
@@ -102,6 +106,10 @@ class RobotNode(Node):
         ts = time.time()
         if self._cmd_topic:
             cmd = self.get_latest(self._cmd_topic)
+            if cmd is not None and self._cmd_timeout_s is not None:
+                cmd_ts = self.get_timestamp(self._cmd_topic)
+                if cmd_ts is None or ts - float(cmd_ts) > self._cmd_timeout_s:
+                    cmd = None
             if cmd is not None:
                 # Use np.array() to ensure a writable copy (np.asarray may return read-only view)
                 joint_pos = np.array(cmd["joint_pos"], dtype=np.float64)
@@ -135,4 +143,6 @@ class RobotNode(Node):
         # Pass through poll_freq if specified
         if "poll_freq" in params:
             kwargs["poll_freq"] = params["poll_freq"]
+        if "cmd_timeout_s" in params:
+            kwargs["cmd_timeout_s"] = params["cmd_timeout_s"]
         return kwargs

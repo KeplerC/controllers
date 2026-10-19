@@ -36,6 +36,7 @@ _NODE_REGISTRY: dict[str, str] = {
     "AgentNode":        "robots_realtime.runtime.agent_node:AgentNode",
     "RobotNode":        "robots_realtime.runtime.environment.robot_node:RobotNode",
     "CameraNode":       "robots_realtime.runtime.environment.camera_node:CameraNode",
+    "OrbbecRigNode":    "robots_realtime.runtime.environment.orbbec_rig_node:OrbbecRigNode",
     "XdofSimNode":      "robots_realtime.runtime.sim.xdof_sim_node:XdofSimNode",
     "ViserTeleopNode":  "robots_realtime.runtime.viser_teleop_node:ViserTeleopNode",
 }
@@ -60,9 +61,25 @@ def _resolve_node_cls(type_name: str):
 # ── Writer factory ────────────────────────────────────────────────────────────
 
 def _make_writer_for_node(node_cls, node_params: dict):
-    """Return an appropriate Writer for the given node type."""
-    from robots_realtime.runtime.recording import McapWriter, AsyncMp4Writer, NullWriter
+    """Return an appropriate Writer for the given node type.
+
+    A node may pick its writer explicitly with ``writer: mcap | mp4 | rgbd | null``.
+    """
+    from robots_realtime.runtime.recording import McapWriter, AsyncMp4Writer, NullWriter, RgbdWriter
     from robots_realtime.runtime.node import NodeRole
+
+    explicit = node_params.get("writer")
+    if explicit is not None:
+        fps = float(node_params.get("fps", 30.0))
+        writers = {
+            "mcap": McapWriter,
+            "mp4": lambda: AsyncMp4Writer(fps=fps),
+            "rgbd": lambda: RgbdWriter(fps=fps),
+            "null": NullWriter,
+        }
+        if explicit not in writers:
+            raise ValueError(f"unknown writer {explicit!r}; expected one of {sorted(writers)}")
+        return writers[explicit]()
 
     # XdofSimNode manages its own writers — give it NullWriter
     type_name = node_params.get("type", "")

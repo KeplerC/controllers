@@ -19,10 +19,11 @@ from robots_realtime.sensors.cameras.camera import CameraData, CameraDriver
 
 _CAMERA_DRIVER_REGISTRY: dict[str, str] = {
     "ZedCamera":    "robots_realtime.sensors.cameras.zed_camera:ZedCamera",
-    "OpenCVCamera": "robots_realtime.sensors.cameras.opencv_camera:OpenCVCamera",
+    "OpenCVCamera": "robots_realtime.sensors.cameras.opencv_camera:OpencvCamera",
+    "OrbbecCamera": "robots_realtime.sensors.cameras.orbbec_camera:OrbbecCamera",
 }
 
-_NODE_ONLY_KEYS = {"name", "type", "poll_freq"}
+_NODE_ONLY_KEYS = {"name", "type", "poll_freq", "publish_freq", "writer"}
 
 
 def _instantiate_camera_driver(spec: dict) -> CameraDriver:
@@ -70,10 +71,14 @@ class CameraNode(Node):
         driver: CameraDriver | None = None,
         name: str = "camera",
         poll_freq: float | None = None,
+        publish_freq: float | None = None,
         writer=None,
         _driver_spec: dict | None = None,
         **kwargs,
     ) -> None:
+        # publish_freq caps the bus rate only; the writer still records every frame.
+        if publish_freq is not None:
+            self.publish_freq = publish_freq
         super().__init__(name=name, writer=writer, **kwargs)
         self._driver = driver
         self._driver_spec = _driver_spec
@@ -99,7 +104,10 @@ class CameraNode(Node):
 
         # Depth: support both other_sensors["depth"] (standard) and the
         # dynamic depth_data attribute that ZedCamera sets directly.
-        depth = (data.other_sensors or {}).get("depth") or getattr(data, "depth_data", None)
+        # (No ``or`` chaining: truth-testing an ndarray raises.)
+        depth = (data.other_sensors or {}).get("depth")
+        if depth is None:
+            depth = getattr(data, "depth_data", None)
         if depth is not None:
             msg["depth_data"] = depth
 
@@ -130,6 +138,7 @@ class CameraNode(Node):
         kwargs: dict = {
             "name": params["name"],
             "poll_freq": params.get("poll_freq"),
+            "publish_freq": params.get("publish_freq"),
         }
         if "driver" in params:
             driver_kwargs = {k: v for k, v in params.items() if k not in _NODE_ONLY_KEYS}
