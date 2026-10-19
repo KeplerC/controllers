@@ -51,6 +51,8 @@ class AgentNode(Node):
         publish_freq:    Optional ZMQ send rate cap (Hz).
         state_topics:    {obs_key: bus_topic} — joint state inputs.
         image_topics:    {obs_key: bus_topic} — image inputs.
+        extra_topics:    {obs_key: bus_topic} — other inputs, passed through as received
+                         (e.g. the hub's answers: studio/viz_ack, studio/stop, studio/record).
         arm_key:         If set, extract action[arm_key]["pos"] and publish as joint_pos.
                          Useful for agents that always return a multi-arm dict but are
                          deployed per-arm (e.g. GelloLeaderAgent).
@@ -61,7 +63,7 @@ class AgentNode(Node):
     """
 
     role = NodeRole.CONTROLLER
-    published_topics: list[str] = ["joint_pos", "record"]
+    published_topics: list[str] = ["joint_pos", "record", "viz"]
 
     def __init__(
         self,
@@ -74,17 +76,22 @@ class AgentNode(Node):
         publish_freq: float | None = None,
         state_topics: dict[str, str] | None = None,
         image_topics: dict[str, str] | None = None,
+        extra_topics: dict[str, str] | None = None,
         arm_key: str | None = None,
         normalize_gripper: bool = False,
         gripper_open_deg: float = 85.0,
         gripper_closed_deg: float = 5.0,
+        multi_arm_topics: bool = False,
         writer=None,
         **kwargs,
     ) -> None:
         self._state_topics = state_topics or {}
         self._image_topics = image_topics or {}
+        self._extra_topics = extra_topics or {}
         self.subscribed_topics = (
-            list(self._state_topics.values()) + list(self._image_topics.values())
+            list(self._state_topics.values())
+            + list(self._image_topics.values())
+            + list(self._extra_topics.values())
         )
 
         if loop_mode == "subscriber_driven":
@@ -111,6 +118,9 @@ class AgentNode(Node):
         self._normalize_gripper = normalize_gripper
         self._gripper_open_deg = gripper_open_deg
         self._gripper_closed_deg = gripper_closed_deg
+        # Always publish ``{key}_pos`` per arm key (even when only one arm is
+        # present this tick) so each RobotNode keeps its own command topic.
+        self._multi_arm_topics = bool(multi_arm_topics)
 
     # ------------------------------------------------------------------
 
@@ -144,12 +154,19 @@ class AgentNode(Node):
             data = self.get_latest(topic)
             if data is not None:
                 obs[obs_key] = data
+        for obs_key, topic in self._extra_topics.items():
+            data = self.get_latest(topic)
+            if data is not None:
+                obs[obs_key] = data
 
         action = self._agent.act(obs)
         ts = time.time()
 
         if "_record" in action:
             self.publish("record", {"record": bool(action["_record"])}, ts=ts)
+        if action.get("_viz") is not None:
+            # What the agent would draw (GaP's plans, targets, the pending approval), for a viewer on the bus.
+            self.publish("viz", action["_viz"], ts=ts)
 
         self._publish_commands(action, ts)
 
@@ -171,7 +188,7 @@ class AgentNode(Node):
             )
         else:
             arm_keys = [k for k in action if not k.startswith("_")]
-            if len(arm_keys) == 1:
+            if len(arm_keys) == 1 and not self._multi_arm_topics:
                 arm_action = action[arm_keys[0]]
                 if isinstance(arm_action, dict) and "pos" in arm_action:
                     self.publish(
@@ -212,8 +229,10 @@ class AgentNode(Node):
             "publish_freq": params.get("publish_freq"),
             "state_topics": params.get("state_topics"),
             "image_topics": params.get("image_topics"),
+            "extra_topics": params.get("extra_topics"),
             "arm_key": params.get("arm_key"),
             "normalize_gripper": params.get("normalize_gripper", False),
             "gripper_open_deg": params.get("gripper_open_deg", 85.0),
             "gripper_closed_deg": params.get("gripper_closed_deg", 5.0),
+            "multi_arm_topics": params.get("multi_arm_topics", False),
         }
