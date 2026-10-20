@@ -15,9 +15,9 @@ arms:
     ip: fake-right.invalid   # FAKE rig: .invalid never resolves (RFC 2606); loopback would hit local nginx on :80
     calib: calib/right_follower_arm_handeye.yaml
     base_frame: right_follower_arm_base
-    # flange -> Robotiq 2F tip, flange frame. imit_ur5 fit vs actual_TCP_pose
+    # flange -> the 2F-85 tool point (fingertips 4.4 mm further), as rig.yaml. imit_ur5 fit vs actual_TCP_pose
     # (1775 frames, 1.2 mm residual). The driver cross-checks RTDE tcp_offset.
-    tcp_offset: [-0.0021, 0.0003, 0.1746]
+    tcp_offset: [-0.0021, 0.0003, 0.1558]
     home_q: [-2.50619, -1.76457, -1.82408, -1.67229, 0.92316, 0.80128]
     home_gripper: 0.0118
     joint_limits: [-6.2831853, 6.2831853]
@@ -26,7 +26,7 @@ arms:
     ip: fake-left.invalid    # FAKE rig
     calib: calib/left_follower_arm_handeye.yaml
     base_frame: left_follower_arm_base
-    tcp_offset: [-0.0021, 0.0003, 0.1746]
+    tcp_offset: [-0.0021, 0.0003, 0.1558]
     home_q: [2.52962, -1.43099, 1.82276, -1.46117, -0.95871, -0.82522]
     home_gripper: 0.0118
     joint_limits: [-6.2831853, 6.2831853]

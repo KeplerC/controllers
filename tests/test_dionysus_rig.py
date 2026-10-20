@@ -349,7 +349,8 @@ def test_floor_blocks_descending_below_table():
     while time.time() < t_end and arm.stats()["floor_holds"] < 20:
         arm.command_joint_pos(tgt)
         time.sleep(0.005)
-    assert a.tcp_world(fake.q)[2, 3] >= rig.surface_z + 0.004
+    floor = rig.surface_z + float(rig.clearance["tcp_above_surface"])
+    assert a.tcp_world(fake.q)[2, 3] >= floor - 0.001  # the floor rig.yaml sets, less a hold step
     assert arm.stats()["floor_holds"] > 0
     arm.stop()
 

@@ -14,9 +14,11 @@ arms:
     ip: 192.168.0.13
     calib: calib/right_follower_arm_handeye.yaml
     base_frame: right_follower_arm_base
-    # flange -> Robotiq 2F tip, flange frame. imit_ur5 fit vs actual_TCP_pose
-    # (1775 frames, 1.2 mm residual). The driver cross-checks RTDE tcp_offset.
-    tcp_offset: [-0.0021, 0.0003, 0.1746]
+    # flange -> the 2F-85's tool point, flange frame; the fingertips are 4.4 mm further (GaP's tip_reach).
+    # x, y: imit_ur5 fit vs actual_TCP_pose (1775 frames, 1.2 mm residual). z: the r2s2rn twin's tool point;
+    # both wrist cameras' depth put the real fingertips 159-161 mm out (2026-10-20). The controller's own TCP
+    # (174.6 mm, the old value) sits 14 mm beyond them, so the driver's tcp_offset cross-check warns: expected.
+    tcp_offset: [-0.0021, 0.0003, 0.1558]
     home_q: [-2.50619, -1.76457, -1.82408, -1.67229, 0.92316, 0.80128]
     home_gripper: 0.0118
     joint_limits: [-6.2831853, 6.2831853]
@@ -25,7 +27,7 @@ arms:
     ip: 192.168.0.11
     calib: calib/left_follower_arm_handeye.yaml
     base_frame: left_follower_arm_base
-    tcp_offset: [-0.0021, 0.0003, 0.1746]
+    tcp_offset: [-0.0021, 0.0003, 0.1558]
     home_q: [2.52962, -1.43099, 1.82276, -1.46117, -0.95871, -0.82522]
     home_gripper: 0.0118
     joint_limits: [-6.2831853, 6.2831853]
@@ -59,11 +61,11 @@ cameras:
 # Home TCPs (calibrated FK): right (0.01, 0.61, 0.45), left (0.00, -0.04, 0.45);
 # arm bases at x~0.5; the top camera looks at ~(0.0, 0.28, 0.0).
 workspace:
-  min: [-0.40, -0.25, -0.025]   # z: the tool centre may go 2.5 cm under the table top (the open 2F-85 tips sit
-  max: [0.45, 0.85, 0.70]       # 5 mm above it, the mat is 4 mm): a pinch on the mat; user's decision 2026-10-20
+  min: [-0.40, -0.25, 0.0]      # z: the tool point on the table top puts the fingertips 4.4 mm under it (was
+  max: [0.45, 0.85, 0.70]       # -0.025 for the old tool point, 14 mm beyond the real fingertips; 2026-10-20)
 
 # Clearance gates (metres) applied to every planned waypoint.
 clearance:
-  tcp_above_surface: -0.025    # TCP never below surface_z + this (was 0.005; a ring on the mat needs the tips at the mat)
+  tcp_above_surface: 0.0       # TCP never below surface_z + this: the fingertips may reach the mat (its top 1-8 mm up)
   links_above_surface: 0.04    # DH frame origins (wrists, flange) above surface_z + this
   inter_arm: 0.12              # min distance between the two arms' link segments
