@@ -1,0 +1,19 @@
+# left UR5e follower (192.168.0.11) — DRIVES the arm through "gap servo" (robots_realtime/rig/servo_program.py),
+# a servoj position servo on the vendor registers. Bring-up needs: pendant Automatic + Remote, "gap servo"
+# loaded on the pendant and STOPPED (load "Default program" back afterwards),
+# recording_studio "Robot Arms" OFF, stop latch clear. See URRegisterArm docstring.
+_target_: robots_realtime.robots.ur_register_arm.URRegisterArm
+ip: "192.168.0.11"
+name: left
+enable_motion: true
+rate: 125.0
+max_joint_vel: 0.25          # rad/s setpoint cap (raise only after stop drills)
+max_lead: 0.05               # rad, setpoint never leads actual_q by more
+speed_fraction: 0.10         # first real steps: slider 0.10 (ramp-tested at 0.30 on gap servo, 2026-10-19)
+restore_speed_fraction: 0.30 # value found on the rig; restored on hand-back
+cmd_timeout_s: 0.3
+joint_lower: [-6.2831853, -6.2831853, -6.2831853, -6.2831853, -6.2831853, -6.2831853]
+joint_upper: [6.2831853, 6.2831853, 6.2831853, 6.2831853, 6.2831853, 6.2831853]
+play_on_start: true
+program: gap servo
+allow_attach_playing: false
