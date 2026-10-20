@@ -40,7 +40,7 @@ nodes:
 
   - type: RobotNode
     name: ur_left
-    robot_config: robot_configs/ur5e/left_servo_slow.yaml
+    robot_config: robot_configs/ur5e/left_servo.yaml   # speed fraction 0.30, ramp-tested 2026-10-19; at 0.10 a 49 cm move outran the driver's time budget (2026-10-20)
     poll_freq: 125
     cmd_topic: ur_client/left_pos
     cmd_timeout_s: 0.2
