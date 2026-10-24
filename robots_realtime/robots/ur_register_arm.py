@@ -10,7 +10,7 @@ on the arm, and it servos to whatever sits in its input registers:
                                          setpoint to the new target over this long
            input_double_register_31      gripper command, vendor units 0 = open .. ~0.92
            speed_slider_mask/fraction    programmatic speed slider (scales all motion)
-    READ   actual_q, actual_qd, actual_TCP_pose, robot_mode, safety_mode, runtime_state
+    READ   actual_q, actual_qd, actual_TCP_pose, actual_TCP_force, robot_mode, safety_mode, runtime_state
            output_double_register_30     gripper position, vendor units
 
 Verified on both followers by imit_ur5 (2026-08-04, re-verified 2026-08-10).
@@ -91,7 +91,17 @@ _OUT_NAMES = [
     "robot_mode", "safety_mode", "runtime_state",
     "actual_q", "actual_qd", "actual_TCP_pose", "tcp_offset",
     f"output_double_register_{GRIPPER_STATE_REG}",
+    # the wrist's force/torque sensor at the TCP, base frame, payload compensated: a press stops on it (r2s2rn's
+    # gasket, 2026-10-24: 2.8 N offset and 0.1 N noise at rest on the left arm, PolyScope X 10.12)
+    "actual_TCP_force",
 ]
+
+
+def _or_zeros(v, n: int = 6):
+    """An RTDE vector, or zeros where the recipe (a fake, an older controller) has none."""
+    return [0.0] * n if v is None else v
+
+
 _IN_REG_NAMES = [f"input_double_register_{i}" for i in range(JOINT_CMD_BASE, GRIPPER_CMD_REG + 1)]
 _IN_NAMES = _IN_REG_NAMES + ["speed_slider_mask", "speed_slider_fraction"]
 _IN_TYPES = ["DOUBLE"] * len(_IN_REG_NAMES) + ["UINT32", "DOUBLE"]
@@ -294,6 +304,7 @@ class URRegisterArm:
             "qd": np.asarray(s.actual_qd, dtype=np.float64),
             "tcp_pose": np.asarray(s.actual_TCP_pose, dtype=np.float64),
             "tcp_offset": np.asarray(s.tcp_offset, dtype=np.float64),
+            "tcp_force": np.asarray(_or_zeros(getattr(s, "actual_TCP_force", None)), dtype=np.float64),
             "gripper_raw": raw_grip,
         }
 
@@ -520,6 +531,7 @@ class URRegisterArm:
             "joint_vel": s["qd"].copy(),
             "tcp_pose": s["tcp_pose"].copy(),  # controller base frame, rotvec
             "tcp_offset": s["tcp_offset"].copy(),
+            "tcp_force": s["tcp_force"].copy(),  # controller base frame: N, then N m
             "gripper_pos": np.array([grip]),
             "gripper_raw": np.array([s["gripper_raw"]]),
             "setpoint": setpoint if setpoint is not None else s["q"].copy(),

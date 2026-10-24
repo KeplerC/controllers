@@ -89,7 +89,7 @@ class FakeURController:
             self.grip += float(np.clip(goal - self.grip, -2.0 * dt, 2.0 * dt))
         return SimpleNamespace(
             robot_mode=7, safety_mode=1, runtime_state=2 if self.playing else 1,
-            actual_q=self.q.tolist(), actual_qd=[0.0] * 6, actual_TCP_pose=[0.0] * 6,
+            actual_q=self.q.tolist(), actual_qd=[0.0] * 6, actual_TCP_pose=[0.0] * 6, actual_TCP_force=[0.0] * 6,
             tcp_offset=[-0.0021, 0.0003, 0.1746, 0.0, 0.0, 0.0], output_double_register_30=self.grip,
         )
 

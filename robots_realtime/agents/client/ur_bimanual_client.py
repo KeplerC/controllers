@@ -286,6 +286,8 @@ class URBimanualClientAgent(Agent):
             "latched": _i("latched"),
             "safety_mode": _i("safety_mode"),
             "runtime_state": _i("runtime_state"),
+            # the wrist's force/torque at the TCP, controller base frame (N, N m); zeros from an older driver
+            "tcp_force": np.asarray(state.get("tcp_force", np.zeros(6)), dtype=np.float32).reshape(-1)[:6],
         }
 
     def _camera_obs(self, name: str, msg: dict, q_by_arm: dict[str, np.ndarray]) -> tuple[dict | None, Any]:
