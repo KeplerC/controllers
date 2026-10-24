@@ -15,9 +15,20 @@ GMSL access needs ``recording_studio.service`` running with all its capture
 stages OFF: with the service stopped the cameras are "not found", with a stage
 streaming they are "busy".
 
+Stereo (``stereo=True``): the device goes to "Dual Color Streams" and streams its
+left and right colour sensors together, with no on-board depth. The left one is
+the colour sensor of the other modes (same intrinsics, same calibration), so
+``images["rgb"]`` is unchanged; ``images["rgb_right"]`` is the right one, and
+``stereo_calibration`` carries both intrinsics, both distortions (OpenCV's
+rational order) and the left-to-right extrinsic, for a stereo matcher off the
+camera (r2s2rn's Fast-FoundationStereo server, 2026-10-23: its depth on these
+pairs agreed with its depth on the IR pair to 4.2 mm median, and both have none
+of the on-board depth's holes). The left IR and colour streams share a sensor
+and cannot run together; switching modes takes about 2 s each way.
+
 Output (``read()``):
-    images      {"rgb": HxWx3 uint8, RGB order}
-    depth_data  HxW float32 metres, 0 = invalid
+    images      {"rgb": HxWx3 uint8, RGB order} (and "rgb_right" in stereo)
+    depth_data  HxW float32 metres, 0 = invalid (None in stereo)
     timestamp   host time [ms] at frame arrival
 Attributes consumed by CameraNode: ``intrinsic_data`` (the robots_realtime shape,
 keyed ``"left"`` for compatibility) and ``extrinsics`` (from the rig model).
@@ -36,6 +47,9 @@ from robots_realtime.sensors.cameras.camera import CameraData
 log = logging.getLogger(__name__)
 
 WORK_MODE_SETTLE_S = 3.5
+DUAL_COLOR_MODE = "Dual Color Streams"
+"""The work mode in which a Gemini 305g streams its left and right colour sensors together (no on-board depth)."""
+
 _DEPTH_MIN_M = 0.03
 _DEPTH_MAX_M = 6.0
 
@@ -120,6 +134,8 @@ class OrbbecCamera:
         width/height/fps: Colour and depth profile (848x530@30 is the calibrated one).
         enable_depth: Stream DEPTH and align it to colour.
         work_mode: Depth work mode to switch into when the device is elsewhere.
+        stereo: Stream the left and right colour sensors ("Dual Color Streams";
+            no on-board depth, ``enable_depth`` and ``work_mode`` are overridden).
         rig_yaml: Rig model for ``extrinsics`` (``None`` = default rig.yaml,
             ``""`` = none).
         timeout_ms: ``wait_for_frames`` timeout.
@@ -137,6 +153,7 @@ class OrbbecCamera:
         fps: int = 30,
         enable_depth: bool = True,
         work_mode: str = "Default",
+        stereo: bool = False,
         rig_yaml: str | None = None,
         timeout_ms: int = 500,
         context: Any = None,
@@ -145,8 +162,10 @@ class OrbbecCamera:
         self.serial = str(serial)
         self.name = camera or name or self.serial
         self.width, self.height, self.fps = int(width), int(height), int(fps)
-        self.enable_depth = bool(enable_depth)
-        self.work_mode = work_mode
+        self.stereo = bool(stereo)
+        self.enable_depth = bool(enable_depth) and not self.stereo
+        self.work_mode = DUAL_COLOR_MODE if self.stereo else work_mode
+        self.stereo_calibration: dict | None = None
         self.timeout_ms = int(timeout_ms)
         self.intrinsic_data: dict | None = None
         self.extrinsics: dict | None = None
@@ -160,15 +179,29 @@ class OrbbecCamera:
         except Exception:
             pass
         dev = self._open_device()
-        if self.enable_depth:
+        if self.enable_depth or self.stereo:
             dev = self._ensure_work_mode(dev)
         self._dev = dev
         self._pipeline = ob.Pipeline(dev)
         cfg = ob.Config()
-        self._color_profile = self._pick(ob.OBSensorType.COLOR_SENSOR, (ob.OBFormat.RGB, ob.OBFormat.MJPG,
-                                                                          ob.OBFormat.YUYV))
-        cfg.enable_stream(self._color_profile)
         self._align = None
+        self._right_profile = None
+        if self.stereo:
+            fmts = (ob.OBFormat.RGB, ob.OBFormat.MJPG, ob.OBFormat.YUYV)
+            self._color_profile = self._pick(ob.OBSensorType.LEFT_COLOR_SENSOR, fmts)
+            self._right_profile = self._pick(ob.OBSensorType.RIGHT_COLOR_SENSOR, fmts)
+            cfg.enable_stream(self._color_profile)
+            cfg.enable_stream(self._right_profile)
+            cfg.set_frame_aggregate_output_mode(ob.OBFrameAggregateOutputMode.FULL_FRAME_REQUIRE)
+            try:
+                self._pipeline.enable_frame_sync()
+            except Exception as e:
+                log.warning("[%s] frame sync unavailable: %s", self.name, e)
+            self.stereo_calibration = self._stereo_calibration()
+        else:
+            self._color_profile = self._pick(ob.OBSensorType.COLOR_SENSOR, (ob.OBFormat.RGB, ob.OBFormat.MJPG,
+                                                                              ob.OBFormat.YUYV))
+            cfg.enable_stream(self._color_profile)
         if self.enable_depth:
             depth_profile = self._pick(ob.OBSensorType.DEPTH_SENSOR, (ob.OBFormat.Y16,))
             cfg.enable_stream(depth_profile)
@@ -186,8 +219,8 @@ class OrbbecCamera:
             ) from e
         self.intrinsic_data = self.read_calibration_data_intrinsics()
         self.extrinsics = self._load_extrinsics(rig_yaml)
-        log.info("[%s] Orbbec %s streaming %dx%d@%d depth=%s mode=%s", self.name, self.serial,
-                 self.width, self.height, self.fps, self.enable_depth, self.work_mode)
+        log.info("[%s] Orbbec %s streaming %dx%d@%d depth=%s stereo=%s mode=%s", self.name, self.serial,
+                 self.width, self.height, self.fps, self.enable_depth, self.stereo, self.work_mode)
 
     # ── setup ─────────────────────────────────────────────────────────────
 
@@ -275,6 +308,8 @@ class OrbbecCamera:
     # ── CameraDriver protocol ─────────────────────────────────────────────
 
     def read(self) -> CameraData:
+        if self.stereo:
+            return self._read_stereo()
         ob = self._ob
         deadline = time.time() + 5.0
         while True:
@@ -306,6 +341,39 @@ class OrbbecCamera:
         self._last_ts = ts_ms
         return result
 
+    def _read_stereo(self) -> CameraData:
+        ob = self._ob
+        deadline = time.time() + 5.0
+        while True:
+            frames = self._pipeline.wait_for_frames(self.timeout_ms)
+            if frames is not None:
+                left = frames.get_frame(ob.OBFrameType.LEFT_COLOR_FRAME)
+                right = frames.get_frame(ob.OBFrameType.RIGHT_COLOR_FRAME)
+                if left is not None and right is not None:
+                    break
+            if time.time() > deadline:
+                raise OrbbecCameraError(f"[{self.name}] no colour pair for 5 s")
+        ts_ms = time.time() * 1000.0
+        result = CameraData(images={"rgb": _frame_to_rgb(ob, left.as_video_frame()),
+                                    "rgb_right": _frame_to_rgb(ob, right.as_video_frame())}, timestamp=ts_ms)
+        result.depth_data = None  # type: ignore[attr-defined]
+        self._last_ts = ts_ms
+        return result
+
+    def _stereo_calibration(self) -> dict[str, Any]:
+        """Both colour sensors' intrinsics and distortions (OpenCV rational order) and the left-to-right extrinsic."""
+        out: dict[str, Any] = {}
+        for side, prof in (("left", self._color_profile), ("right", self._right_profile)):
+            i = prof.get_intrinsic()
+            d = prof.get_distortion()
+            out[f"K_{side}"] = [[i.fx, 0.0, i.cx], [0.0, i.fy, i.cy], [0.0, 0.0, 1.0]]
+            out[f"dist_{side}"] = [float(getattr(d, k, 0.0)) for k in ("k1", "k2", "p1", "p2", "k3", "k4", "k5", "k6")]
+            out["size"] = [int(i.width), int(i.height)]
+        e = self._color_profile.get_extrinsic_to(self._right_profile)
+        out["R_left_to_right"] = np.asarray(e.rot, dtype=float).reshape(3, 3).tolist()
+        out["t_left_to_right_m"] = (np.asarray(e.transform, dtype=float).reshape(3) / 1000.0).tolist()
+        return out
+
     def read_calibration_data_intrinsics(self) -> dict[str, Any]:
         intr = self._color_profile.get_intrinsic()
         K = np.array([[intr.fx, 0.0, intr.cx], [0.0, intr.fy, intr.cy], [0.0, 0.0, 1.0]], dtype=np.float64)
@@ -335,6 +403,7 @@ class OrbbecCamera:
             "fps": self.fps,
             "depth": self.enable_depth,
             "work_mode": self.work_mode,
+            "stereo": self.stereo,
         }
 
     def stop(self) -> None:

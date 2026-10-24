@@ -10,7 +10,13 @@ way recording_studio drives them.
 One reader thread per camera keeps the latest frame; :meth:`step` publishes each
 new frame as ``{name}/{camera}`` (e.g. ``cams/top``) in exactly CameraNode's
 payload shape (``images``, ``timestamp``, ``depth_data``, ``intrinsics``,
-``extrinsics``), so consumers are unchanged. Recording uses one
+``extrinsics``), so consumers are unchanged. With ``stereo`` the cameras stream
+their left and right colour sensors (no on-board depth): ``{name}/{camera}``
+keeps the left image as ``rgb`` and takes its ``depth_data`` from the latest
+``{depth_topic}/{camera}`` a stereo matcher publishes (r2s2rn's
+Fast-FoundationStereo server), with that depth's source time as
+``depth_timestamp``; the pair itself goes out as ``{name}/stereo_{camera}`` at
+``stereo_freq`` with the calibration, for the matcher only. Recording uses one
 :class:`~robots_realtime.runtime.recording.RgbdWriter` per camera, named
 ``{name}_{camera}``, so the files are the same as with one node per camera.
 """
@@ -35,6 +41,9 @@ class OrbbecRigNode(Node):
         poll_freq: Publish loop rate [Hz].
         publish_freq: Bus rate cap per camera [Hz]; recording still gets every frame.
         record: Record RGB-D when the session records.
+        stereo: Stream each camera's colour pair instead of colour + depth.
+        stereo_freq: Rate of the ``stereo_{camera}`` pairs [Hz].
+        depth_topic: Node whose ``{depth_topic}/{camera}`` depth fills ``depth_data`` in stereo.
     """
 
     role = NodeRole.SENSOR
@@ -53,6 +62,9 @@ class OrbbecRigNode(Node):
         poll_freq: float = 30.0,
         publish_freq: float | None = None,
         record: bool = True,
+        stereo: bool = False,
+        stereo_freq: float = 2.0,
+        depth_topic: str = "ffs",
         writer=None,
         **kwargs: Any,
     ) -> None:
@@ -62,8 +74,17 @@ class OrbbecRigNode(Node):
         super().__init__(name=name, writer=None, **kwargs)
         self._specs = list(cameras or [])
         self.published_topics = [str(c["camera"]) for c in self._specs]
+        self._stereo = bool(stereo)
+        self._stereo_period = 1.0 / float(stereo_freq) if stereo_freq else 0.0
+        self._depth_topic = str(depth_topic)
+        self._stereo_sent: dict[str, float] = {}
+        if self._stereo:
+            from robots_realtime.sensors.cameras.orbbec_camera import DUAL_COLOR_MODE
+
+            work_mode = DUAL_COLOR_MODE
+            self.subscribed_topics = [f"{self._depth_topic}/{c['camera']}" for c in self._specs]
         self._cam_kwargs = dict(width=width, height=height, fps=fps, enable_depth=enable_depth,
-                                work_mode=work_mode, rig_yaml=rig_yaml)
+                                work_mode=work_mode, rig_yaml=rig_yaml, stereo=self._stereo)
         self._fps = float(fps)
         self._record = bool(record)
         self._cams: dict[str, Any] = {}
@@ -110,8 +131,20 @@ class OrbbecRigNode(Node):
             self._seen[cam] = data.timestamp
             drv = self._cams[cam]
             ts = data.timestamp / 1000.0
-            msg: dict = {"images": data.images, "timestamp": ts}
+            images = dict(data.images)
+            right = images.pop("rgb_right", None)
+            msg: dict = {"images": images, "timestamp": ts}
             depth = getattr(data, "depth_data", None)
+            if self._stereo:
+                matched = self.get_latest(f"{self._depth_topic}/{cam}") if self._subscriber is not None else None
+                if matched and matched.get("depth") is not None:
+                    depth = matched["depth"]
+                    msg["depth_timestamp"] = matched.get("source_ts")
+                now = time.time()
+                if right is not None and now - self._stereo_sent.get(cam, 0.0) >= self._stereo_period:
+                    self._stereo_sent[cam] = now
+                    self.publish(f"stereo_{cam}", {"left": images["rgb"], "right": right, "timestamp": ts,
+                                                   "calibration": drv.stereo_calibration}, ts=ts)
             if depth is not None:
                 msg["depth_data"] = depth
             if drv.intrinsic_data is not None:
@@ -152,7 +185,7 @@ class OrbbecRigNode(Node):
     @classmethod
     def build_kwargs(cls, params: dict) -> dict:
         keys = ("name", "cameras", "width", "height", "fps", "enable_depth", "work_mode", "rig_yaml",
-                "poll_freq", "publish_freq", "record")
+                "poll_freq", "publish_freq", "record", "stereo", "stereo_freq", "depth_topic")
         return {k: params[k] for k in keys if k in params}
 
 
